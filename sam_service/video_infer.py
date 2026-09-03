@@ -125,16 +125,30 @@ class VideoSegmenter:
         1.jpg, …). Returns per-frame tracked instances + a unique-object count.
         """
         t0 = time.time()
+        # offload_video_to_cpu keeps the decoded frames off the GPU; the model
+        # weights + per-frame tracker state are what actually fill a 24 GB card
+        # (measured 22 GB with 40 frames @1008px next to the image model), so
+        # the session is closed and the allocator cache released afterwards —
+        # a worker serves many jobs and must not carry the last clip's state.
         r = self.pred.handle_request(dict(type="start_session",
-                                          resource_path=os.path.abspath(frames_dir)))
+                                          resource_path=os.path.abspath(frames_dir),
+                                          offload_video_to_cpu=True))
         sid = r["session_id"]
-        self.pred.handle_request(dict(type="add_prompt", session_id=sid,
-                                      frame_index=0, text=prompt))
-
         outs: dict[int, dict] = {}
-        for resp in self.pred.handle_stream_request(
-                dict(type="propagate_in_video", session_id=sid)):
-            outs[resp["frame_index"]] = resp["outputs"]
+        try:
+            self.pred.handle_request(dict(type="add_prompt", session_id=sid,
+                                          frame_index=0, text=prompt))
+            for resp in self.pred.handle_stream_request(
+                    dict(type="propagate_in_video", session_id=sid)):
+                outs[resp["frame_index"]] = resp["outputs"]
+        finally:
+            try:
+                self.pred.handle_request(dict(type="close_session", session_id=sid))
+            except Exception:
+                pass
+            if self.device == "cuda":
+                import torch
+                torch.cuda.empty_cache()
 
         ids: set[int] = set()
         per_frame: dict[int, int] = {}

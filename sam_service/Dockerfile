@@ -28,6 +28,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SAM3_DEVICE=cuda \
     SAM3_FROM_HF=1 \
     SAM_PRELOAD=image \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
