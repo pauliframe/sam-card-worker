@@ -86,6 +86,17 @@ class VideoSegmenter:
         self.pred = build_sam3_predictor(checkpoint_path=ckpt, version="sam3.1",
                                          use_fa3=False, warm_up=False)
         m = self.pred.model
+        # Upstream bug (present at 5dd401d and on main 2026-08): the predictor's
+        # start_session forwards `offload_state_to_cpu` to model.init_state, but
+        # the multiplex tracker's init_state has no such parameter -> TypeError
+        # on the very first session. Filter kwargs to the real signature here,
+        # at runtime, instead of patching the library inside the image.
+        import inspect
+        _orig_init = m.init_state
+        _valid = set(inspect.signature(_orig_init).parameters)
+        def _init_state(*a, **kw):
+            return _orig_init(*a, **{k: v for k, v in kw.items() if k in _valid})
+        m.init_state = _init_state
         m.float()
         if self.device == "mps":
             # fp16 ONLY the memory-heavy vision trunk; decoder/tracker stay fp32
@@ -98,7 +109,12 @@ class VideoSegmenter:
                 mod.cache = {k: (v.to(self.device) if hasattr(v, "to") else v)
                              for k, v in mod.cache.items()}
         m.to(self.device)
-        if self.device != "cpu":
+        if self.device == "mps":
+            # MPS-only: the tracker's hardcoded .cuda() reloads are redirected
+            # and need a default device. On CUDA this must NOT be set: it makes
+            # every fresh tensor CUDA-resident, which breaks the image path's
+            # pinned-memory post-processing ("cannot pin torch.cuda.FloatTensor")
+            # for the rest of the worker's life.
             torch.set_default_device(self.device)
         self.model_load_s = time.time() - t0
 
