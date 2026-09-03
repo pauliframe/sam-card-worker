@@ -1,0 +1,14 @@
+# SAM 3.1 serverless worker (CUDA). torch/torchvision/triton come from the base
+# image (pytorch/pytorch 2.8.0 cu12.8); these are the extras on top.
+# sam3 is pinned to the exact upstream commit the local MPS validation ran on.
+runpod>=1.6.0
+git+https://github.com/facebookresearch/sam3.git@5dd401d1c5c1d5c3eedff06d41b77af824517619
+einops
+timm
+iopath
+tqdm
+scipy
+pycocotools
+opencv-python-headless
+huggingface_hub
+numpy
